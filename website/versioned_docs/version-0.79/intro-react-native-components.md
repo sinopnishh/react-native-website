@@ -1,87 +1,308 @@
----
-id: intro-react-native-components
-title: Core Components and Native Components
-description: 'React Native lets you compose app interfaces using Native Components. Conveniently, it comes with a set of these components for you to get started with right now—the Core Components!'
----
+import React, { useState, useEffect, useRef } from 'react';
 
-import ThemedImage from '@theme/ThemedImage';
+// Firebase modüllerini import edin
+import { initializeApp } from 'firebase/app';
+import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
+import { getFirestore, doc, setDoc, collection, query, onSnapshot, orderBy, limit } from 'firebase/firestore';
 
-React Native is an open source framework for building Android and iOS applications using [React](https://reactjs.org/) and the app platform’s native capabilities. With React Native, you use JavaScript to access your platform’s APIs as well as to describe the appearance and behavior of your UI using React components: bundles of reusable, nestable code. You can learn more about React in the next section. But first, let’s cover how components work in React Native.
+// Global değişkenleri kontrol edin ve kullanın
+const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
 
-## Views and mobile development
+// Firebase uygulamasını başlatın
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
+const auth = getAuth(app);
 
-In Android and iOS development, a **view** is the basic building block of UI: a small rectangular element on the screen which can be used to display text, images, or respond to user input. Even the smallest visual elements of an app, like a line of text or a button, are kinds of views. Some kinds of views can contain other views. It’s views all the way down!
+// Yapay zeka backend'inizin API adresi.
+// BURAYI KENDİ BACKEND SUNUCUNUZUN ADRESİYLE DEĞİŞTİRMELİSİNİZ!
+// Örnek: const AI_API_URL = 'https://your-ai-backend.com/process-image';
+const AI_API_URL = 'https://your-ai-backend-url.com/process-image'; // Bu URL'yi kendi backend'inizle değiştirin
 
-<figure>
-  <img src="/docs/assets/diagram_ios-android-views.svg" width="1000" alt="Diagram of Android and iOS app showing them both built on top of atomic elements called views." />
-  <figcaption>Just a sampling of the many views used in Android and iOS apps.</figcaption>
-</figure>
-
-## Native Components
-
-In Android development, you write views in Kotlin or Java; in iOS development, you use Swift or Objective-C. With React Native, you can invoke these views with JavaScript using React components. At runtime, React Native creates the corresponding Android and iOS views for those components. Because React Native components are backed by the same views as Android and iOS, React Native apps look, feel, and perform like any other apps. We call these platform-backed components **Native Components.**
-
-React Native comes with a set of essential, ready-to-use Native Components you can use to start building your app today. These are React Native's **Core Components**.
-
-:::caution
-This documentation references a legacy set of API and needs to be updated to reflect the New Architecture
-:::
-React Native also lets you build your own Native Components for [Android](legacy/native-components-android.md) and [iOS](legacy/native-components-ios.md) to suit your app’s unique needs. We also have a thriving ecosystem of these **community-contributed components.** Check out [Native Directory](https://reactnative.directory) to find what the community has been creating.
-
-## Core Components
-
-React Native has many Core Components for everything from controls to activity indicators. You can find them all [documented in the API section](components-and-apis). You will mostly work with the following Core Components:
-
-| React Native UI Component | Android View   | iOS View         | Web Analog              | Description                                                                                           |
-| ------------------------- | -------------- | ---------------- | ----------------------- | ----------------------------------------------------------------------------------------------------- |
-| `<View>`                  | `<ViewGroup>`  | `<UIView>`       | A non-scrolling `<div>` | A container that supports layout with flexbox, style, some touch handling, and accessibility controls |
-| `<Text>`                  | `<TextView>`   | `<UITextView>`   | `<p>`                   | Displays, styles, and nests strings of text and even handles touch events                             |
-| `<Image>`                 | `<ImageView>`  | `<UIImageView>`  | `<img>`                 | Displays different types of images                                                                    |
-| `<ScrollView>`            | `<ScrollView>` | `<UIScrollView>` | `<div>`                 | A generic scrolling container that can contain multiple components and views                          |
-| `<TextInput>`             | `<EditText>`   | `<UITextField>`  | `<input type="text">`   | Allows the user to enter text                                                                         |
-
-In the next section, you will start combining these Core Components to learn about how React works. Have a play with them here now!
-
-```SnackPlayer name=Hello%20World
-import React from 'react';
-import {View, Text, Image, ScrollView, TextInput} from 'react-native';
-
-const App = () => {
+// Özel Modal Bileşeni
+const CustomModal = ({ visible, message, onClose }) => {
+  if (!visible) return null;
   return (
-    <ScrollView>
-      <Text>Some text</Text>
-      <View>
-        <Text>Some more text</Text>
-        <Image
-          source={{
-            uri: 'https://reactnative.dev/docs/assets/p_cat2.png',
-          }}
-          style={{width: 200, height: 200}}
-        />
-      </View>
-      <TextInput
-        style={{
-          height: 40,
-          borderColor: 'gray',
-          borderWidth: 1,
-        }}
-        defaultValue="You can type in me"
-      />
-    </ScrollView>
+    <div className="fixed inset-0 bg-gray-600 bg-opacity-75 flex items-center justify-center z-50">
+      <div className="bg-white p-6 rounded-lg shadow-xl max-w-sm w-full text-center">
+        <p className="text-lg font-semibold mb-4 text-gray-800">{message}</p>
+        <button
+          onClick={onClose}
+          className="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-full transition duration-300 ease-in-out"
+        >
+          Tamam
+        </button>
+      </div>
+    </div>
   );
 };
 
-export default App;
-```
+export default function App() {
+  const [selectedImage, setSelectedImage] = useState(null); // Seçilen görselin Data URL'si (Base64)
+  const [hairDescription, setHairDescription] = useState(''); // Kullanıcının saç açıklaması
+  const [loading, setLoading] = useState(false); // Yükleme durumu
+  const [generatedVariations, setGeneratedVariations] = useState([]); // Oluşturulan varyasyonlar
+  const [userId, setUserId] = useState(null); // Firestore için kullanıcı ID'si
+  const [isAuthReady, setIsAuthReady] = useState(false); // Firebase Auth hazır mı?
+  const [history, setHistory] = useState([]); // İşlem geçmişi
 
----
+  const fileInputRef = useRef(null); // Dosya input elementine referans
 
-Because React Native uses the same API structure as React components, you’ll need to understand React component APIs to get started. The [next section](intro-react) makes for a quick introduction or refresher on the topic. However, if you’re already familiar with React, feel free to [skip ahead](handling-text-input).
+  // Modal durumu
+  const [modalVisible, setModalVisible] = useState(false);
+  const [modalMessage, setModalMessage] = useState('');
 
-<ThemedImage
-alt="A diagram showing React Native's Core Components are a subset of React Components that ship with React Native."
-sources={{
-  light: '/docs/assets/diagram_react-native-components.svg',
-  dark: '/docs/assets/diagram_react-native-components_dark.svg',
-}}
-/>
+  const showAlert = (title, message) => {
+    setModalMessage(`${title}\n${message}`);
+    setModalVisible(true);
+  };
+
+  // Firebase kimlik doğrulama ve Firestore kurulumu
+  useEffect(() => {
+    const setupFirebase = async () => {
+      try {
+        if (initialAuthToken) {
+          await signInWithCustomToken(auth, initialAuthToken);
+          console.log("Signed in with custom token.");
+        } else {
+          await signInAnonymously(auth);
+          console.log("Signed in anonymously.");
+        }
+      } catch (error) {
+        console.error("Firebase Auth Error:", error);
+        showAlert("Hata", "Firebase kimlik doğrulama hatası: " + error.message);
+      }
+    };
+
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      if (user) {
+        setUserId(user.uid);
+        console.log("User ID:", user.uid);
+      } else {
+        // Eğer anonim giriş başarısız olursa veya kullanıcı yoksa, rastgele bir ID kullan
+        setUserId(crypto.randomUUID());
+        console.log("Anonymous user ID:", userId);
+      }
+      setIsAuthReady(true); // Kimlik doğrulama hazır
+    });
+
+    setupFirebase();
+    return () => unsubscribe();
+  }, []);
+
+  // Firestore'dan geçmişi dinleme
+  useEffect(() => {
+    if (!isAuthReady || !userId) return;
+
+    // Firestore güvenlik kurallarına uygun olarak public veya private koleksiyonu seçin
+    // Bu örnekte, kullanıcının kendi geçmişini tutmak için private koleksiyon kullanıyoruz.
+    const historyCollectionRef = collection(db, `artifacts/${appId}/users/${userId}/image_modifications`);
+    const q = query(historyCollectionRef, orderBy("timestamp", "desc"), limit(5)); // Son 5 işlemi göster
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const fetchedHistory = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      setHistory(fetchedHistory);
+      console.log("History updated:", fetchedHistory);
+    }, (error) => {
+      console.error("Firestore history snapshot error:", error);
+      showAlert("Hata", "Geçmiş yüklenirken bir sorun oluştu: " + error.message);
+    });
+
+    return () => unsubscribe();
+  }, [isAuthReady, userId]);
+
+  // Görsel seçme fonksiyonu (Web için input type="file" kullanır)
+  const handleImageSelect = (event) => {
+    const file = event.target.files[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setSelectedImage(reader.result); // Base64 Data URL
+        setGeneratedVariations([]); // Yeni görsel seçildiğinde varyasyonları sıfırla
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  // Görseli işleme ve AI backend'ine gönderme fonksiyonu
+  const processImage = async () => {
+    if (!selectedImage) {
+      showAlert("Hata", "Lütfen önce bir görsel seçin.");
+      return;
+    }
+    if (!hairDescription.trim()) {
+      showAlert("Hata", "Lütfen saç için bir açıklama girin (örn: 'uzun ve sarı').");
+      return;
+    }
+    if (!AI_API_URL || AI_API_URL === 'https://your-ai-backend-url.com/process-image') {
+      showAlert("Hata", "Lütfen AI_API_URL'yi kendi backend adresinizle güncelleyin.");
+      return;
+    }
+
+    setLoading(true);
+    setGeneratedVariations([]); // Yeni işlemde eski varyasyonları temizle
+
+    try {
+      // Base64 Data URL'den sadece Base64 kısmını al
+      const base64Image = selectedImage.split(',')[1];
+
+      // Backend'e gönderilecek veri
+      const payload = {
+        image: base64Image,
+        description: hairDescription,
+        // userId: userId, // Backend'de kullanıcı takibi için gönderilebilir
+      };
+
+      console.log("Sending payload to AI backend...");
+      // Yapay zeka backend'ine POST isteği gönder
+      const response = await fetch(AI_API_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(`API Hatası: ${response.status} - ${errorData.message || response.statusText}`);
+      }
+
+      const result = await response.json();
+      console.log("AI response received:", result);
+
+      if (result.variations && Array.isArray(result.variations) && result.variations.length > 0) {
+        setGeneratedVariations(result.variations);
+
+        // İşlem geçmişini Firestore'a kaydet
+        if (userId) {
+          const historyCollectionRef = collection(db, `artifacts/${appId}/users/${userId}/image_modifications`);
+          await setDoc(doc(historyCollectionRef), { // doc() ile otomatik ID oluşturulur
+            originalImage: selectedImage, // Data URL olarak kaydediyoruz
+            description: hairDescription,
+            generatedVariations: result.variations,
+            timestamp: new Date().toISOString(),
+            userId: userId, // Kullanıcı ID'sini de kaydedelim
+          });
+          console.log("Operation saved to Firestore.");
+        } else {
+          console.warn("User ID not available, skipping Firestore save.");
+        }
+      } else {
+        showAlert("Sonuç Yok", "Yapay zeka beklenen varyasyonları döndürmedi.");
+      }
+    } catch (error) {
+      console.error("Görsel işleme hatası:", error);
+      showAlert("Hata", "Görsel işlenirken bir sorun oluştu: " + error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-gray-100 flex flex-col items-center py-8 font-['Inter']">
+      {/* Tailwind CSS'i yükle */}
+      <script src="https://cdn.tailwindcss.com"></script>
+
+      <CustomModal visible={modalVisible} message={modalMessage} onClose={() => setModalVisible(false)} />
+
+      <h1 className="text-4xl font-bold text-gray-800 mb-6 mt-4">Saç Değişim Uygulaması</h1>
+      {userId && isAuthReady && (
+        <p className="text-sm text-gray-600 mb-4">Kullanıcı ID: {userId}</p>
+      )}
+
+      {/* Gizli dosya inputu */}
+      <input
+        type="file"
+        accept="image/*"
+        ref={fileInputRef}
+        onChange={handleImageSelect}
+        className="hidden"
+      />
+
+      <button
+        onClick={() => fileInputRef.current.click()} // Butona tıklandığında dosya inputunu tetikle
+        className="bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 px-8 rounded-full shadow-lg transition duration-300 ease-in-out mb-6"
+      >
+        Görsel Seç
+      </button>
+
+      {selectedImage && (
+        <div className="w-4/5 md:w-3/5 lg:w-2/5 mb-6 bg-gray-200 rounded-xl overflow-hidden border border-gray-300 shadow-md">
+          <img src={selectedImage} alt="Seçilen Görsel" className="w-full h-auto object-contain rounded-xl" />
+        </div>
+      )}
+
+      <input
+        type="text"
+        placeholder="Saç nasıl olsun? (örn: 'uzun ve sarı')"
+        placeholderTextColor="#999"
+        value={hairDescription}
+        onChange={(e) => setHairDescription(e.target.value)}
+        className="w-4/5 md:w-3/5 lg:w-2/5 p-4 border border-gray-300 rounded-xl mb-6 text-lg text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+      />
+
+      <button
+        onClick={processImage}
+        disabled={loading}
+        className={`bg-green-500 hover:bg-green-600 text-white font-bold py-3 px-8 rounded-full shadow-lg transition duration-300 ease-in-out ${loading ? 'opacity-60 cursor-not-allowed' : ''} mb-10`}
+      >
+        {loading ? (
+          <div className="flex items-center justify-center">
+            <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            İşleniyor...
+          </div>
+        ) : (
+          'Saçları Değiştir'
+        )}
+      </button>
+
+      {generatedVariations.length > 0 && (
+        <div className="w-full max-w-4xl p-6 bg-white rounded-xl shadow-md mb-10">
+          <h2 className="text-3xl font-bold text-gray-800 mb-6 text-center">Oluşturulan Varyasyonlar:</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 justify-items-center">
+            {generatedVariations.map((base64Image, index) => (
+              <div key={index} className="w-full bg-gray-200 rounded-xl overflow-hidden border border-gray-300 shadow-md">
+                <img
+                  src={`data:image/png;base64,${base64Image}`}
+                  alt={`Varyasyon ${index + 1}`}
+                  className="w-full h-auto object-contain rounded-xl"
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {history.length > 0 && (
+        <div className="w-full max-w-4xl p-6 bg-white rounded-xl shadow-md">
+          <h2 className="text-3xl font-bold text-gray-800 mb-6 text-center">Son İşlemler:</h2>
+          <div className="space-y-4">
+            {history.map((item) => (
+              <div key={item.id} className="bg-gray-50 p-4 rounded-lg shadow-sm border border-gray-200">
+                <p className="text-lg font-semibold text-gray-700 mb-2">Açıklama: {item.description}</p>
+                <div className="flex flex-wrap justify-center gap-4 mb-3">
+                  {item.originalImage && (
+                    <img src={item.originalImage} alt="Orijinal" className="w-24 h-20 object-cover rounded-md border border-gray-300" />
+                  )}
+                  {item.generatedVariations && item.generatedVariations.length > 0 && (
+                    item.generatedVariations.map((base64Image, varIndex) => (
+                      <img
+                        key={varIndex}
+                        src={`data:image/png;base64,${base64Image}`}
+                        alt={`Varyasyon ${varIndex + 1}`}
+                        className="w-24 h-20 object-cover rounded-md border border-gray-300"
+                      />
+                    ))
+                  )}
+                </div>
+                <p className="text-sm text-gray-500 text-right">{new Date(item.timestamp).toLocaleString()}</p>
+              </div>
+            
